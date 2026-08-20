@@ -32,6 +32,9 @@ button:disabled { opacity: .55; cursor: default; }
 .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 4px; background: var(--card2); border-radius: 8px; }
 .tabs button, .ghost { border: 0; background: transparent; color: var(--muted); min-height: 44px; border-radius: 6px; }
 .tabs .active { background: var(--card); color: var(--text); }
+.language-switch { margin-bottom: 12px; }
+.language-switch select { min-height: 42px; }
+.setup .language-switch { width: min(220px, 34vw); margin: 0 0 0 auto; }
 form, .form, label { display: grid; gap: 12px; }
 label { color: var(--muted); font-size: 13px; }
 input, select { width: 100%; min-height: 46px; border: 1px solid var(--line); border-radius: 8px; padding: 0 12px; background: var(--card); color: var(--text); }
@@ -95,4 +98,4 @@ nav button { min-width: 0; min-height: 58px; border: 0; border-radius: 8px; back
 nav span { font-size: 18px; }
 nav .active { color: var(--ink); background: rgba(49,210,127,.14); }
 @media (max-width: 760px) { .auth { grid-template-columns: 1fr; align-content: start; } .brand { min-height: 300px; } }
-@media (max-width: 520px) { .splash, .auth, .setup { padding: 16px; } .metrics, .grid, .quick, .admin-actions { grid-template-columns: 1fr; } .quick form, .chart form { grid-column: span 1; } .workout { flex-direction: column; align-items: stretch; } nav button { font-size: 10px; } }
+@media (max-width: 520px) { .splash, .auth, .setup { padding: 16px; } .setup header { align-items: flex-start; flex-wrap: wrap; } .setup .language-switch { width: 100%; margin-left: 0; } .metrics, .grid, .quick, .admin-actions { grid-template-columns: 1fr; } .quick form, .chart form { grid-column: span 1; } .workout { flex-direction: column; align-items: stretch; } nav button { font-size: 10px; } }

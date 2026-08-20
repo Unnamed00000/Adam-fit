@@ -1,15 +1,28 @@
-import { exerciseText, tr } from "./i18n.js?v=1.0.3";
-import { dateKey, daySummary, defaultProfile, normalizeProfile, todayWorkout, weekPlan } from "./fitness.js?v=1.0.3";
-import { store } from "./storage.js?v=1.0.3";
-import { initFirebase } from "./firebase.js?v=1.0.3";
+import { exerciseText, tr } from "./i18n.js?v=1.0.4";
+import { dateKey, daySummary, defaultProfile, normalizeProfile, todayWorkout, weekPlan } from "./fitness.js?v=1.0.4";
+import { store } from "./storage.js?v=1.0.4";
+import { initFirebase } from "./firebase.js?v=1.0.4";
 
 const root = document.querySelector("#app");
 const ADMIN_UIDS = new Set(["paEGMjUNBac2suEeYF96dFIAIAY2"]);
+const LANGUAGE_KEY = "adam-fit-5ec39:language";
+const supportedLanguages = ["ru", "en", "da"];
+const languageNames = { ru: "Русский", en: "English", da: "Dansk" };
+
+function storedLanguage() {
+  try {
+    const language = localStorage.getItem(LANGUAGE_KEY);
+    return supportedLanguages.includes(language) ? language : defaultProfile.language;
+  } catch {
+    return defaultProfile.language;
+  }
+}
 
 const state = {
   booting: true,
   authMode: "login",
   message: "",
+  language: storedLanguage(),
   firebase: { ready: false, mode: "local" },
   user: null,
   profile: null,
@@ -32,12 +45,28 @@ const lists = {
   duration: [15, 30, 45, 60],
   equipment: ["bodyweight", "dumbbells", "barbell", "machines", "bands"],
   meals: ["breakfast", "lunch", "dinner", "snack"],
-  days: ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+  days: ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"],
+  languages: supportedLanguages
 };
 
 const html = (value) => String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
-const t = (key, values) => tr(state.profile?.language || defaultProfile.language, key, values);
-const ex = (key, index) => exerciseText(state.profile?.language || defaultProfile.language, key, index);
+const t = (key, values) => tr(activeLanguage(), key, values);
+const ex = (key, index) => exerciseText(activeLanguage(), key, index);
+
+function activeLanguage() {
+  const language = state.profile?.language || state.language || defaultProfile.language;
+  return supportedLanguages.includes(language) ? language : defaultProfile.language;
+}
+
+function setLanguage(language) {
+  if (!supportedLanguages.includes(language)) return;
+  state.language = language;
+  try {
+    localStorage.setItem(LANGUAGE_KEY, language);
+  } catch {
+    // Ignore private-mode storage failures; the current session still updates.
+  }
+}
 
 function roleFor(uid, profile = {}) {
   return ADMIN_UIDS.has(uid) ? "admin" : profile.role || "user";
@@ -82,6 +111,7 @@ async function refresh() {
   await ensureUserDocument(state.user.id);
   state.profile = await getProfile(state.user.id);
   if (state.profile) {
+    setLanguage(state.profile.language);
     state.day = await getDay(state.user.id, state.dayKey);
     state.weights = await getWeights(state.user.id);
     if (isAdmin()) await loadAdminUsers();
@@ -175,6 +205,7 @@ async function saveProfile(uid, profile) {
     ...defaultProfile,
     ...state.profile,
     ...profile,
+    language: profile.language || state.profile?.language || state.language || defaultProfile.language,
     role: roleFor(uid, profile),
     profileComplete: true
   });
@@ -273,7 +304,7 @@ async function completeWorkoutLog(log) {
 function render() {
   const theme = state.profile?.theme || "light";
   document.body.classList.toggle("dark", theme === "dark");
-  document.documentElement.lang = state.profile?.language || "ru";
+  document.documentElement.lang = activeLanguage();
 
   if (state.booting) {
     root.innerHTML = `<main class="splash"><img src="icon.svg" alt=""><h1>Adam Fit</h1><p>${t("slogan")}</p><span>${t("subtitle")}</span></main>`;
@@ -284,7 +315,8 @@ function render() {
     return;
   }
   if (!state.profile) {
-    root.innerHTML = `<main class="setup"><header><img src="icon.svg" alt=""><div><p>Adam Fit</p><h1>${t("profileSetup")}</h1><span>${t("setupText")}</span></div></header>${profileForm(defaultProfile, t("savePlan"))}</main>`;
+    const setupProfile = { ...defaultProfile, language: activeLanguage() };
+    root.innerHTML = `<main class="setup"><header><img src="icon.svg" alt=""><div><p>Adam Fit</p><h1>${t("profileSetup")}</h1><span>${t("setupText")}</span></div>${languageSelector("language-public", "compact")}</header>${profileForm(setupProfile, t("savePlan"))}</main>`;
     return;
   }
   root.innerHTML = shell();
@@ -295,6 +327,7 @@ function viewAuth() {
   return `<main class="auth">
     <section class="brand"><img src="icon.svg" alt=""><h1>Adam Fit</h1><p>${t("subtitle")}</p><strong>${t("slogan")}</strong></section>
     <section class="card auth-card">
+      ${languageSelector("language-public")}
       <div class="tabs">
         <button class="${action === "login" ? "active" : ""}" data-action="auth-mode" data-mode="login">${t("login")}</button>
         <button class="${action === "register" ? "active" : ""}" data-action="auth-mode" data-mode="register">${t("register")}</button>
@@ -330,7 +363,7 @@ function viewToday() {
   const hour = new Date().getHours();
   const greet = hour < 12 ? t("morning") : hour < 18 ? t("afternoon") : t("evening");
   const status = summary.stepsLeft === 0 && summary.proteinLeft === 0 ? t("statusDone") : t("status", { steps: summary.stepsLeft, protein: summary.proteinLeft });
-  return `<header class="top"><div><p>${new Intl.DateTimeFormat(state.profile.language, { weekday: "long", day: "numeric", month: "long" }).format(new Date())}</p><h1>${greet}, ${html(state.profile.name)}</h1></div><img src="icon.svg" alt=""></header>
+  return `<header class="top"><div><p>${new Intl.DateTimeFormat(activeLanguage(), { weekday: "long", day: "numeric", month: "long" }).format(new Date())}</p><h1>${greet}, ${html(state.profile.name)}</h1></div><img src="icon.svg" alt=""></header>
     <section class="metrics">
       ${metric(t("calories"), summary.calories, state.profile.calorieTarget, "kcal", summary.calorieLeft)}
       ${metric(t("protein"), summary.protein, state.profile.proteinTarget, "g", summary.proteinLeft)}
@@ -406,7 +439,7 @@ function viewProfile() {
   return `<header class="plain"><h1>${t("profile")}</h1><p>${t("smartHint")}</p></header>
     <section class="targets">${["calories", "protein", "water", "steps"].map((key) => `<article><span>${t(key)}</span><strong>${state.profile[key === "calories" ? "calorieTarget" : `${key}Target`]}${key === "calories" ? " kcal" : ""}</strong></article>`).join("")}<article><span>${t("role")}</span><strong>${t(state.profile.role || "user")}</strong></article><article><span>${t("dataMode")}</span><strong>${state.firebase.ready ? t("firebase") : t("local")}</strong></article></section>
     ${profileForm(state.profile, t("save"))}
-    <section class="settings"><label>${t("language")}<select data-action="language">${["ru", "en", "da"].map((lang) => `<option value="${lang}" ${state.profile.language === lang ? "selected" : ""}>${lang.toUpperCase()}</option>`).join("")}</select></label><label>${t("theme")}<select data-action="theme"><option value="light" ${state.profile.theme === "light" ? "selected" : ""}>${t("light")}</option><option value="dark" ${state.profile.theme === "dark" ? "selected" : ""}>${t("dark")}</option></select></label><button class="danger" data-action="sign-out">${t("signOut")}</button></section>`;
+    <section class="settings">${languageSelector("language")}<label>${t("theme")}<select data-action="theme"><option value="light" ${state.profile.theme === "light" ? "selected" : ""}>${t("light")}</option><option value="dark" ${state.profile.theme === "dark" ? "selected" : ""}>${t("dark")}</option></select></label><button class="danger" data-action="sign-out">${t("signOut")}</button></section>`;
 }
 
 function viewAdmin() {
@@ -467,6 +500,11 @@ function field(label, name, value, type = "text", attrs = "") {
 
 function select(label, name, values, selected = values[0], labeler = t) {
   return `<label><span>${label}</span><select name="${name}">${values.map((value) => `<option value="${value}" ${String(value) === String(selected) ? "selected" : ""}>${labeler(value)}</option>`).join("")}</select></label>`;
+}
+
+function languageSelector(action = "language", mode = "") {
+  const classes = ["language-switch", mode].filter(Boolean).join(" ");
+  return `<label class="${classes}"><span>${t("language")}</span><select data-action="${action}">${lists.languages.map((language) => `<option value="${language}" ${activeLanguage() === language ? "selected" : ""}>${languageNames[language]}</option>`).join("")}</select></label>`;
 }
 
 function chart(weights) {
@@ -546,8 +584,17 @@ async function click(event) {
 
 async function change(event) {
   const node = event.target.closest("[data-action]");
-  if (!node || !state.profile) return;
-  if (node.dataset.action === "language") state.profile = await saveProfile(state.user.id, { ...state.profile, language: node.value });
+  if (!node) return;
+  if (node.dataset.action === "language-public") {
+    setLanguage(node.value);
+    render();
+    return;
+  }
+  if (!state.profile) return;
+  if (node.dataset.action === "language") {
+    setLanguage(node.value);
+    state.profile = await saveProfile(state.user.id, { ...state.profile, language: node.value });
+  }
   if (node.dataset.action === "theme") state.profile = await saveProfile(state.user.id, { ...state.profile, theme: node.value });
   render();
 }
