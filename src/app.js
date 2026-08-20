@@ -1,7 +1,7 @@
-import { exerciseText, tr } from "./i18n.js?v=1.0.7";
-import { dateKey, daySummary, defaultProfile, normalizeProfile, todayWorkout, weekPlan } from "./fitness.js?v=1.0.7";
-import { store } from "./storage.js?v=1.0.7";
-import { firebaseConfig, initFirebase } from "./firebase.js?v=1.0.7";
+import { exerciseText, tr } from "./i18n.js?v=1.0.8";
+import { dateKey, daySummary, defaultProfile, normalizeProfile, todayWorkout, weekPlan } from "./fitness.js?v=1.0.8";
+import { store } from "./storage.js?v=1.0.8";
+import { firebaseConfig, initFirebase } from "./firebase.js?v=1.0.8";
 
 const root = document.querySelector("#app");
 const ADMIN_UIDS = new Set(["paEGMjUNBac2suEeYF96dFIAIAY2"]);
@@ -558,18 +558,37 @@ function bodyFigure(label, weight, height, mode) {
   const hips = clamp(0.76, body + (state.profile.gender === "female" ? 0.08 : 0), 1.42);
   const heightScale = clamp(0.9, height / 178, 1.12);
   const typeKey = bmi < 18.5 ? "bodyLean" : bmi < 25 ? "bodyFit" : bmi < 30 ? "bodySolid" : "bodyStrong";
-  return `<article class="body-figure ${mode}" style="--body:${body.toFixed(2)};--shoulders:${shoulders.toFixed(2)};--hips:${hips.toFixed(2)};--person-height:${heightScale.toFixed(2)}">
-    <div class="person" aria-hidden="true">
-      <i class="head"></i>
-      <i class="neck"></i>
-      <i class="torso"></i>
-      <i class="arm left"></i>
-      <i class="arm right"></i>
-      <i class="hips"></i>
-      <i class="leg left"></i>
-      <i class="leg right"></i>
-      <i class="pulse"></i>
-    </div>
+  const shoulder = 25 * shoulders;
+  const waist = 15 * body;
+  const hip = 23 * hips;
+  const thigh = 12 * body;
+  const armWidth = clamp(9, 10.5 * body, 17);
+  const legWidth = clamp(10, 11 * body, 18);
+  const gradientId = `personGradient-${mode}`;
+  const torsoPath = `M ${80 - shoulder} 69 C ${80 - shoulder - 4} 91 ${80 - waist - 7} 112 ${80 - hip} 143 C ${80 - hip + 8} 154 ${80 - thigh} 171 ${80 - thigh} 196 L ${80 + thigh} 196 C ${80 + thigh} 171 ${80 + hip - 8} 154 ${80 + hip} 143 C ${80 + waist + 7} 112 ${80 + shoulder + 4} 91 ${80 + shoulder} 69 C ${80 + shoulder - 13} 60 ${80 - shoulder + 13} 60 ${80 - shoulder} 69 Z`;
+  const leftArm = `M ${80 - shoulder + 4} 78 C ${80 - shoulder - 14} 103 ${80 - shoulder - 18} 134 ${80 - shoulder - 11} 164`;
+  const rightArm = `M ${80 + shoulder - 4} 78 C ${80 + shoulder + 14} 103 ${80 + shoulder + 18} 134 ${80 + shoulder + 11} 164`;
+  const leftLeg = `M ${80 - thigh - 2} 194 C ${80 - thigh - 10} 211 ${80 - legWidth - 8} 236 ${80 - legWidth - 4} 250 C ${80 - legWidth + 5} 254 ${80 - 5} 253 ${80 - 4} 245 C ${80 - 1} 224 ${80 - 2} 208 ${80 - 1} 194 Z`;
+  const rightLeg = `M ${80 + thigh + 2} 194 C ${80 + thigh + 10} 211 ${80 + legWidth + 8} 236 ${80 + legWidth + 4} 250 C ${80 + legWidth - 5} 254 ${80 + 5} 253 ${80 + 4} 245 C ${80 + 1} 224 ${80 + 2} 208 ${80 + 1} 194 Z`;
+  return `<article class="body-figure ${mode}" style="--person-height:${heightScale.toFixed(2)}">
+    <svg class="person-svg" viewBox="0 0 160 260" aria-hidden="true">
+      <defs>
+        <linearGradient id="${gradientId}" x1="38" y1="18" x2="122" y2="250" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stop-color="var(--lime)"/>
+          <stop offset=".56" stop-color="var(--brand)"/>
+          <stop offset="1" stop-color="#166342"/>
+        </linearGradient>
+      </defs>
+      <ellipse class="person-shadow" cx="80" cy="252" rx="${Math.round(34 * body)}" ry="8"/>
+      <circle class="person-part head-shape" cx="80" cy="28" r="${clamp(15, 16 + body, 20).toFixed(1)}"/>
+      <path class="person-part neck-shape" d="M ${72 - body} 45 C 76 51 84 51 ${88 + body} 45 L ${90 + body} 62 C 84 67 76 67 ${70 - body} 62 Z"/>
+      <path class="person-part arm-shape" d="${leftArm}" stroke-width="${armWidth.toFixed(1)}"/>
+      <path class="person-part arm-shape" d="${rightArm}" stroke-width="${armWidth.toFixed(1)}"/>
+      <path class="person-part torso-shape" d="${torsoPath}"/>
+      <path class="person-part leg-shape" d="${leftLeg}"/>
+      <path class="person-part leg-shape" d="${rightLeg}"/>
+      <path class="person-highlight" d="M 69 72 C 64 98 65 127 72 151"/>
+    </svg>
     <div class="body-meta">
       <strong>${label}</strong>
       <span>${Math.round(weight * 10) / 10} ${t("kgUnit")} · BMI ${bmi.toFixed(1)}</span>
