@@ -16,7 +16,7 @@ Adam Fit — персональный фитнес-помощник для тр�
 This repository contains the first installable web/PWA MVP:
 
 - splash screen;
-- email registration and login flow with local fallback;
+- Firebase email registration and login flow with local fallback;
 - onboarding profile setup;
 - goal selection and daily calorie/protein/water/step calculation;
 - Today dashboard;
@@ -28,4 +28,4 @@ This repository contains the first installable web/PWA MVP:
 - profile/settings;
 - Russian, English, and Danish UI strings.
 
-Firebase Hosting is configured for `adam-fit-5ec39`. Real Firebase Auth/Firestore/Storage can be connected from the included service layer once the Firebase web app config and product rules are active.
+Firebase Hosting is configured for `adam-fit-5ec39`. Firebase Auth and Firestore are connected with the Web App config for this project. Storage rules are included, but Firebase Storage still needs to be initialized in the Firebase Console before deploying those rules.

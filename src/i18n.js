@@ -108,6 +108,8 @@ const ru = {
   authMissing: "Введите email и пароль.",
   authExists: "Аккаунт уже существует.",
   authInvalid: "Email или пароль не подходит.",
+  authWeakPassword: "Пароль должен быть не короче 6 символов.",
+  authUnavailable: "Firebase временно недоступен. Попробуйте ещё раз.",
   exercise: {
     squat: ["Присед", "Контролируйте глубину и держите колени по линии стоп."],
     press: ["Жим гантелей", "Двигайтесь плавно, лопатки держите стабильно."],
@@ -206,7 +208,12 @@ const en = {
   signOut: "Sign out",
   dataMode: "Data mode",
   local: "local",
-  smartHint: "If weight barely changes for 14 days, Adam Fit will suggest an adjustment, but will not apply it without permission."
+  smartHint: "If weight barely changes for 14 days, Adam Fit will suggest an adjustment, but will not apply it without permission.",
+  authMissing: "Enter email and password.",
+  authExists: "An account already exists.",
+  authInvalid: "Email or password is incorrect.",
+  authWeakPassword: "Password must be at least 6 characters.",
+  authUnavailable: "Firebase is temporarily unavailable. Try again."
 };
 
 const da = {

@@ -1,7 +1,7 @@
-import { exerciseText, tr } from "./i18n.js";
-import { dateKey, daySummary, defaultProfile, normalizeProfile, todayWorkout, weekPlan } from "./fitness.js";
-import { store } from "./storage.js";
-import { initFirebase } from "./firebase.js";
+import { exerciseText, tr } from "./i18n.js?v=1.0.1";
+import { dateKey, daySummary, defaultProfile, normalizeProfile, todayWorkout, weekPlan } from "./fitness.js?v=1.0.1";
+import { store } from "./storage.js?v=1.0.1";
+import { initFirebase } from "./firebase.js?v=1.0.1";
 
 const root = document.querySelector("#app");
 const state = {
@@ -34,13 +34,144 @@ const html = (value) => String(value ?? "").replaceAll("&", "&amp;").replaceAll(
 const t = (key, values) => tr(state.profile?.language || defaultProfile.language, key, values);
 const ex = (key, index) => exerciseText(state.profile?.language || defaultProfile.language, key, index);
 
-function refresh() {
+function errorMessage(error) {
+  const code = error?.code || error?.message || "";
+  if (code.includes("email-already-in-use") || code === "authExists") return t("authExists");
+  if (code.includes("weak-password")) return t("authWeakPassword");
+  if (code.includes("invalid-email") || code === "authMissing") return t("authMissing");
+  if (code.includes("invalid-credential") || code.includes("wrong-password") || code.includes("user-not-found") || code === "authInvalid") return t("authInvalid");
+  if (code.includes("network") || code.includes("unavailable")) return t("authUnavailable");
+  return error?.message || t("authUnavailable");
+}
+
+function firebaseUser(user) {
+  if (!user) return null;
+  return {
+    id: user.uid,
+    email: user.email || "",
+    createdAt: user.metadata?.creationTime || new Date().toISOString()
+  };
+}
+
+function waitForAuthUser() {
+  if (!state.firebase.ready) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const unsubscribe = state.firebase.auth.onAuthStateChanged((user) => {
+      unsubscribe();
+      resolve(firebaseUser(user));
+    });
+  });
+}
+
+async function refresh() {
   if (!state.user) return;
-  state.profile = store.profile(state.user.id);
+  state.profile = await getProfile(state.user.id);
   if (state.profile) {
-    state.day = store.day(state.user.id, state.dayKey);
-    state.weights = store.weights(state.user.id);
+    state.day = await getDay(state.user.id, state.dayKey);
+    state.weights = await getWeights(state.user.id);
   }
+}
+
+async function getProfile(uid) {
+  if (!state.firebase.ready) return store.profile(uid);
+  const snap = await state.firebase.firestore.collection("users").doc(uid).get();
+  if (!snap.exists) return store.profile(uid);
+  const profile = normalizeProfile({ ...defaultProfile, ...snap.data() });
+  store.saveProfile(uid, profile);
+  return profile;
+}
+
+async function saveProfile(uid, profile) {
+  const saved = normalizeProfile({ ...defaultProfile, ...profile });
+  store.saveProfile(uid, saved);
+  if (state.firebase.ready) {
+    await state.firebase.firestore.collection("users").doc(uid).set({
+      ...saved,
+      email: state.user?.email || "",
+      updatedAt: new Date().toISOString()
+    }, { merge: true });
+  }
+  return saved;
+}
+
+async function getDay(uid, key) {
+  if (!state.firebase.ready) return store.day(uid, key);
+  const snap = await state.firebase.firestore.collection("users").doc(uid).collection("days").doc(key).get();
+  if (!snap.exists) return store.day(uid, key);
+  const day = { meals: [], water: 0, steps: 0, workoutDone: false, workouts: [], ...snap.data() };
+  store.saveDay(uid, key, day);
+  return day;
+}
+
+async function saveDay(uid, key, day) {
+  const saved = store.saveDay(uid, key, day);
+  if (state.firebase.ready) {
+    await state.firebase.firestore.collection("users").doc(uid).collection("days").doc(key).set(saved, { merge: true });
+  }
+  return saved;
+}
+
+async function getWeights(uid) {
+  if (!state.firebase.ready) return store.weights(uid);
+  const snap = await state.firebase.firestore.collection("users").doc(uid).collection("weights").orderBy("createdAt", "asc").get();
+  const weights = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  if (!weights.length) return store.weights(uid);
+  return weights;
+}
+
+async function addFood(food) {
+  const day = state.day || await getDay(state.user.id, state.dayKey);
+  const meals = Array.isArray(day.meals) ? day.meals : [];
+  return saveDay(state.user.id, state.dayKey, {
+    ...day,
+    meals: [...meals, {
+      id: crypto.randomUUID?.() || String(Date.now()),
+      ...food,
+      calories: Number(food.calories) || 0,
+      protein: Number(food.protein) || 0
+    }]
+  });
+}
+
+async function addWater(amount) {
+  const day = state.day || await getDay(state.user.id, state.dayKey);
+  return saveDay(state.user.id, state.dayKey, {
+    ...day,
+    water: Math.max(0, Number(day.water || 0) + Number(amount || 0))
+  });
+}
+
+async function setSteps(steps) {
+  const day = state.day || await getDay(state.user.id, state.dayKey);
+  return saveDay(state.user.id, state.dayKey, {
+    ...day,
+    steps: Math.max(0, Number(steps) || 0)
+  });
+}
+
+async function addWeight(weight) {
+  const item = {
+    id: crypto.randomUUID?.() || String(Date.now()),
+    date: dateKey(),
+    weight: Number(weight),
+    createdAt: new Date().toISOString()
+  };
+  const weights = [...store.weights(state.user.id), item].filter((entry) => Number.isFinite(entry.weight));
+  localStorage.setItem(`adam-fit-5ec39:${state.user.id}:weights`, JSON.stringify(weights));
+  if (state.firebase.ready && Number.isFinite(item.weight)) {
+    await state.firebase.firestore.collection("users").doc(state.user.id).collection("weights").doc(item.id).set(item);
+  }
+  return weights;
+}
+
+async function completeWorkoutLog(log) {
+  const day = state.day || await getDay(state.user.id, state.dayKey);
+  const workouts = Array.isArray(day.workouts) ? day.workouts : [];
+  return saveDay(state.user.id, state.dayKey, {
+    ...day,
+    workoutDone: true,
+    workouts: [...workouts, { ...log, completedAt: new Date().toISOString() }]
+  });
 }
 
 function render() {
@@ -209,54 +340,69 @@ function chart(weights) {
   return `<svg viewBox="0 0 320 150"><polyline points="${points}" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 }
 
-function submit(event) {
+async function submit(event) {
   const form = event.target.closest("form");
   if (!form?.dataset.form) return;
   event.preventDefault();
   const data = Object.fromEntries(new FormData(form).entries());
   data.equipment = new FormData(form).getAll("equipment");
   try {
-    if (form.dataset.form === "login") state.user = store.login(data.email, data.password);
-    if (form.dataset.form === "register") state.user = store.register(data.email, data.password);
-    if (form.dataset.form === "profile") state.profile = store.saveProfile(state.user.id, data);
-    if (form.dataset.form === "food") state.day = store.addFood(state.user.id, state.dayKey, data);
-    if (form.dataset.form === "steps") state.day = store.setSteps(state.user.id, state.dayKey, data.steps);
+    if (form.dataset.form === "login") {
+      if (state.firebase.ready) {
+        const credential = await state.firebase.auth.signInWithEmailAndPassword(data.email, data.password);
+        state.user = firebaseUser(credential.user);
+      } else {
+        state.user = store.login(data.email, data.password);
+      }
+    }
+    if (form.dataset.form === "register") {
+      if (state.firebase.ready) {
+        const credential = await state.firebase.auth.createUserWithEmailAndPassword(data.email, data.password);
+        state.user = firebaseUser(credential.user);
+      } else {
+        state.user = store.register(data.email, data.password);
+      }
+    }
+    if (form.dataset.form === "profile") state.profile = await saveProfile(state.user.id, data);
+    if (form.dataset.form === "food") state.day = await addFood(data);
+    if (form.dataset.form === "steps") state.day = await setSteps(data.steps);
     if (form.dataset.form === "weight") {
-      state.weights = store.addWeight(state.user.id, data.weight);
-      state.profile = store.saveProfile(state.user.id, { ...state.profile, currentWeight: Number(data.weight) || state.profile.currentWeight });
+      state.weights = await addWeight(data.weight);
+      state.profile = await saveProfile(state.user.id, { ...state.profile, currentWeight: Number(data.weight) || state.profile.currentWeight });
     }
     if (form.dataset.form === "set") completeSet(data);
-    refresh();
+    await refresh();
     state.message = "";
   } catch (error) {
-    state.message = t(error.message || "authInvalid");
+    state.message = errorMessage(error);
   }
   render();
 }
 
-function click(event) {
+async function click(event) {
   const node = event.target.closest("[data-action]");
   if (!node) return;
   if (node.dataset.action === "auth-mode") state.authMode = node.dataset.mode;
   if (node.dataset.action === "reset") state.message = t("resetHint");
   if (node.dataset.action === "nav") state.screen = node.dataset.screen;
   if (node.dataset.action === "continue") state.screen = "nutrition";
-  if (node.dataset.action === "water") state.day = store.addWater(state.user.id, state.dayKey, node.dataset.amount);
+  if (node.dataset.action === "water") state.day = await addWater(node.dataset.amount);
   if (node.dataset.action === "start-workout") startWorkout();
-  if (node.dataset.action === "finish-workout") finishWorkout();
+  if (node.dataset.action === "finish-workout") await finishWorkout();
   if (node.dataset.action === "sign-out") {
     clearInterval(state.restTimer);
-    store.signOut();
+    if (state.firebase.ready) await state.firebase.auth.signOut();
+    else store.signOut();
     Object.assign(state, { user: null, profile: null, day: null, weights: [], screen: "today", session: null });
   }
   render();
 }
 
-function change(event) {
+async function change(event) {
   const node = event.target.closest("[data-action]");
   if (!node || !state.profile) return;
-  if (node.dataset.action === "language") state.profile = store.saveProfile(state.user.id, { ...state.profile, language: node.value });
-  if (node.dataset.action === "theme") state.profile = store.saveProfile(state.user.id, { ...state.profile, theme: node.value });
+  if (node.dataset.action === "language") state.profile = await saveProfile(state.user.id, { ...state.profile, language: node.value });
+  if (node.dataset.action === "theme") state.profile = await saveProfile(state.user.id, { ...state.profile, theme: node.value });
   render();
 }
 
@@ -291,9 +437,9 @@ function startRest(seconds) {
   }, 1000);
 }
 
-function finishWorkout() {
+async function finishWorkout() {
   clearInterval(state.restTimer);
-  state.day = store.completeWorkout(state.user.id, state.dayKey, {
+  state.day = await completeWorkoutLog({
     title: state.session.workout.title,
     duration: state.session.workout.duration,
     sets: state.session.logs
@@ -304,8 +450,8 @@ function finishWorkout() {
 
 async function boot() {
   state.firebase = await initFirebase();
-  state.user = store.session();
-  refresh();
+  state.user = state.firebase.ready ? await waitForAuthUser() : store.session();
+  await refresh();
   render();
   setTimeout(() => { state.booting = false; render(); }, 700);
   if ("serviceWorker" in navigator && location.protocol !== "file:") navigator.serviceWorker.register("./service-worker.js").catch(console.warn);
