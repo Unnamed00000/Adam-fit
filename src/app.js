@@ -1,7 +1,7 @@
-import { exerciseText, tr } from "./i18n.js?v=1.0.2";
-import { dateKey, daySummary, defaultProfile, normalizeProfile, todayWorkout, weekPlan } from "./fitness.js?v=1.0.2";
-import { store } from "./storage.js?v=1.0.2";
-import { initFirebase } from "./firebase.js?v=1.0.2";
+import { exerciseText, tr } from "./i18n.js?v=1.0.3";
+import { dateKey, daySummary, defaultProfile, normalizeProfile, todayWorkout, weekPlan } from "./fitness.js?v=1.0.3";
+import { store } from "./storage.js?v=1.0.3";
+import { initFirebase } from "./firebase.js?v=1.0.3";
 
 const root = document.querySelector("#app");
 const ADMIN_UIDS = new Set(["paEGMjUNBac2suEeYF96dFIAIAY2"]);
@@ -16,6 +16,9 @@ const state = {
   dayKey: dateKey(),
   day: null,
   weights: [],
+  adminUsers: [],
+  adminMessage: "",
+  adminLoading: false,
   screen: "today",
   session: null,
   restTimer: null
@@ -40,12 +43,17 @@ function roleFor(uid, profile = {}) {
   return ADMIN_UIDS.has(uid) ? "admin" : profile.role || "user";
 }
 
+function isAdmin() {
+  return state.profile?.role === "admin" || ADMIN_UIDS.has(state.user?.id);
+}
+
 function errorMessage(error) {
   const code = error?.code || error?.message || "";
   if (code.includes("email-already-in-use") || code === "authExists") return t("authExists");
   if (code.includes("weak-password")) return t("authWeakPassword");
   if (code.includes("invalid-email") || code === "authMissing") return t("authMissing");
   if (code.includes("invalid-credential") || code.includes("wrong-password") || code.includes("user-not-found") || code === "authInvalid") return t("authInvalid");
+  if (code === "adminFunctionsUnavailable") return t("adminFunctionsUnavailable");
   if (code.includes("network") || code.includes("unavailable")) return t("authUnavailable");
   return error?.message || t("authUnavailable");
 }
@@ -76,7 +84,54 @@ async function refresh() {
   if (state.profile) {
     state.day = await getDay(state.user.id, state.dayKey);
     state.weights = await getWeights(state.user.id);
+    if (isAdmin()) await loadAdminUsers();
   }
+}
+
+function callable(name) {
+  if (!state.firebase.ready || !state.firebase.functions) {
+    throw new Error("adminFunctionsUnavailable");
+  }
+  return state.firebase.functions.httpsCallable(name);
+}
+
+async function loadAdminUsers() {
+  if (!isAdmin() || !state.firebase.ready || !state.firebase.functions) return;
+  try {
+    state.adminLoading = true;
+    const result = await callable("adminListUsers")();
+    state.adminUsers = Array.isArray(result.data?.users) ? result.data.users : [];
+    state.adminMessage = "";
+  } catch (error) {
+    state.adminMessage = errorMessage(error);
+  } finally {
+    state.adminLoading = false;
+  }
+}
+
+async function adminCreateUser(data) {
+  const createUser = callable("adminCreateUser");
+  await createUser({
+    email: data.email,
+    password: data.password,
+    name: data.name,
+    role: data.role === "admin" ? "admin" : "user"
+  });
+  state.adminMessage = t("adminUserCreated");
+  await loadAdminUsers();
+}
+
+async function adminSetPassword(data) {
+  const setPassword = callable("adminSetUserPassword");
+  await setPassword({ uid: data.uid, password: data.password });
+  state.adminMessage = t("adminPasswordChanged");
+}
+
+async function adminDeleteUser(uid) {
+  const deleteUser = callable("adminDeleteUser");
+  await deleteUser({ uid });
+  state.adminMessage = t("adminUserDeleted");
+  await loadAdminUsers();
 }
 
 async function ensureUserDocument(uid) {
@@ -256,15 +311,17 @@ function viewAuth() {
 }
 
 function shell() {
-  const views = { today: viewToday, nutrition: viewNutrition, workouts: viewWorkouts, progress: viewProgress, profile: viewProfile };
+  const views = { today: viewToday, nutrition: viewNutrition, workouts: viewWorkouts, progress: viewProgress, profile: viewProfile, adminPanel: viewAdmin };
+  const navItems = ["today", "nutrition", "workouts", "progress", "profile"];
+  if (isAdmin()) navItems.push("adminPanel");
   return `<main class="phone">
     <section class="content">${views[state.screen]?.() || viewToday()}</section>
-    <nav>${["today", "nutrition", "workouts", "progress", "profile"].map((item) => `<button class="${state.screen === item ? "active" : ""}" data-action="nav" data-screen="${item}"><span>${icon(item)}</span>${t(item)}</button>`).join("")}</nav>
+    <nav class="${navItems.length > 5 ? "wide-nav" : ""}">${navItems.map((item) => `<button class="${state.screen === item ? "active" : ""}" data-action="nav" data-screen="${item}"><span>${icon(item)}</span>${t(item)}</button>`).join("")}</nav>
   </main>`;
 }
 
 function icon(item) {
-  return { today: "●", nutrition: "+", workouts: "△", progress: "⌁", profile: "◐" }[item];
+  return { today: "●", nutrition: "+", workouts: "△", progress: "⌁", profile: "◐", adminPanel: "★" }[item];
 }
 
 function viewToday() {
@@ -352,6 +409,46 @@ function viewProfile() {
     <section class="settings"><label>${t("language")}<select data-action="language">${["ru", "en", "da"].map((lang) => `<option value="${lang}" ${state.profile.language === lang ? "selected" : ""}>${lang.toUpperCase()}</option>`).join("")}</select></label><label>${t("theme")}<select data-action="theme"><option value="light" ${state.profile.theme === "light" ? "selected" : ""}>${t("light")}</option><option value="dark" ${state.profile.theme === "dark" ? "selected" : ""}>${t("dark")}</option></select></label><button class="danger" data-action="sign-out">${t("signOut")}</button></section>`;
 }
 
+function viewAdmin() {
+  if (!isAdmin()) {
+    return `<section class="card"><h1>${t("adminPanel")}</h1><p>${t("adminOnly")}</p></section>`;
+  }
+
+  return `<header class="plain"><h1>${t("adminPanel")}</h1><p>${t("adminIntro")}</p></header>
+    ${state.adminMessage ? `<p class="notice">${html(state.adminMessage)}</p>` : ""}
+    <form class="card form" data-form="admin-create-user">
+      <h2>${t("adminCreateUser")}</h2>
+      ${field(t("name"), "name", "")}
+      ${field(t("email"), "email", "", "email", "required")}
+      ${field(t("password"), "password", "", "password", "required minlength=\"6\"")}
+      ${select(t("role"), "role", ["user", "admin"], "user")}
+      <button class="primary">${t("adminCreateUser")}</button>
+    </form>
+    <section class="list admin-list">
+      <div class="list-head">
+        <h2>${t("adminUsers")}</h2>
+        <button class="ghost" data-action="admin-refresh">${state.adminLoading ? t("loading") : t("refresh")}</button>
+      </div>
+      ${state.adminUsers.length ? state.adminUsers.map((user) => adminUserCard(user)).join("") : `<article class="card"><p>${state.adminLoading ? t("loading") : t("noItems")}</p></article>`}
+    </section>`;
+}
+
+function adminUserCard(user) {
+  return `<article class="card admin-user">
+    <div>
+      <h3>${html(user.email || user.uid)}</h3>
+      <span>${html(user.uid)}</span>
+    </div>
+    <p><strong>${t("role")}:</strong> ${t(user.role || "user")} · <strong>${t("profile")}:</strong> ${user.profileComplete ? t("completed") : t("notCompleted")}</p>
+    <form data-form="admin-password" class="admin-actions">
+      <input type="hidden" name="uid" value="${html(user.uid)}">
+      <input name="password" type="password" minlength="6" placeholder="${t("newPassword")}" required>
+      <button>${t("changePassword")}</button>
+    </form>
+    <button class="danger" data-action="admin-delete" data-uid="${html(user.uid)}" ${user.uid === state.user.id ? "disabled" : ""}>${t("deleteUser")}</button>
+  </article>`;
+}
+
 function profileForm(profile, button) {
   return `<form class="card form" data-form="profile">
     ${field(t("name"), "name", profile.name)}
@@ -411,6 +508,8 @@ async function submit(event) {
       state.weights = await addWeight(data.weight);
       state.profile = await saveProfile(state.user.id, { ...state.profile, currentWeight: Number(data.weight) || state.profile.currentWeight });
     }
+    if (form.dataset.form === "admin-create-user") await adminCreateUser(data);
+    if (form.dataset.form === "admin-password") await adminSetPassword(data);
     if (form.dataset.form === "set") completeSet(data);
     await refresh();
     state.message = "";
@@ -426,7 +525,13 @@ async function click(event) {
   if (node.dataset.action === "auth-mode") state.authMode = node.dataset.mode;
   if (node.dataset.action === "reset") state.message = t("resetHint");
   if (node.dataset.action === "nav") state.screen = node.dataset.screen;
+  if (node.dataset.action === "nav" && node.dataset.screen === "adminPanel") await loadAdminUsers();
   if (node.dataset.action === "continue") state.screen = "nutrition";
+  if (node.dataset.action === "admin-refresh") await loadAdminUsers();
+  if (node.dataset.action === "admin-delete") {
+    const email = node.closest(".admin-user")?.querySelector("h3")?.textContent || node.dataset.uid;
+    if (confirm(t("confirmDeleteUser", { email }))) await adminDeleteUser(node.dataset.uid);
+  }
   if (node.dataset.action === "water") state.day = await addWater(node.dataset.amount);
   if (node.dataset.action === "start-workout") startWorkout();
   if (node.dataset.action === "finish-workout") await finishWorkout();

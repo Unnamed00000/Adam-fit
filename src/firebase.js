@@ -15,6 +15,7 @@ export async function initFirebase() {
     await load(`https://www.gstatic.com/firebasejs/${SDK_VERSION}/firebase-app-compat.js`);
     await load(`https://www.gstatic.com/firebasejs/${SDK_VERSION}/firebase-auth-compat.js`);
     await load(`https://www.gstatic.com/firebasejs/${SDK_VERSION}/firebase-firestore-compat.js`);
+    await load(`https://www.gstatic.com/firebasejs/${SDK_VERSION}/firebase-functions-compat.js`);
     await load(`https://www.gstatic.com/firebasejs/${SDK_VERSION}/firebase-analytics-compat.js`);
 
     const app = window.firebase.apps?.length
@@ -22,6 +23,7 @@ export async function initFirebase() {
       : window.firebase.initializeApp(firebaseConfig);
     const auth = window.firebase.auth(app);
     const firestore = window.firebase.firestore(app);
+    const functions = window.firebase.app().functions("europe-west1");
 
     await auth.setPersistence(window.firebase.auth.Auth.Persistence.LOCAL);
 
@@ -38,6 +40,7 @@ export async function initFirebase() {
       app,
       auth,
       firestore,
+      functions,
       analytics
     };
   } catch (error) {

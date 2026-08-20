@@ -1,10 +1,51 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isBootstrapAdmin(uid) {
+      return uid == "paEGMjUNBac2suEeYF96dFIAIAY2";
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin";
+    }
+
+    function ownUser(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function validOwnCreate(userId) {
+      return ownUser(userId)
+        && (
+          !("role" in request.resource.data)
+          || request.resource.data.role == "user"
+          || (isBootstrapAdmin(userId) && request.resource.data.role == "admin")
+        );
+    }
+
+    function validOwnUpdate(userId) {
+      return ownUser(userId)
+        && (
+          !("role" in request.resource.data.diff(resource.data).affectedKeys())
+          || resource.data.role == request.resource.data.role
+          || (isBootstrapAdmin(userId) && request.resource.data.role == "admin")
+        );
+    }
+
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow get: if ownUser(userId) || isAdmin();
+      allow list: if isAdmin();
+      allow create: if validOwnCreate(userId) || isAdmin();
+      allow update: if validOwnUpdate(userId) || isAdmin();
+      allow delete: if isAdmin();
+
       match /{document=**} {
-        allow read, write: if request.auth != null && request.auth.uid == userId;
+        allow read, write: if ownUser(userId) || isAdmin();
       }
     }
   }

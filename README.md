@@ -29,3 +29,15 @@ This repository contains the first installable web/PWA MVP:
 - Russian, English, and Danish UI strings.
 
 Firebase Hosting is configured for `adam-fit-5ec39`. Firebase Auth and Firestore are connected with the Web App config for this project. Storage rules are included, but Firebase Storage still needs to be initialized in the Firebase Console before deploying those rules.
+
+## Admin
+
+The bootstrap admin UID is:
+
+```text
+paEGMjUNBac2suEeYF96dFIAIAY2
+```
+
+Admin users see an extra **Admin** tab in the app. User listing, user creation, password changes, and deletion are implemented through Firebase Cloud Functions in `functions/` using Firebase Admin SDK.
+
+Cloud Functions require the Firebase project to be on the **Blaze** plan before deployment, because Firebase must enable Cloud Functions, Cloud Build, and Artifact Registry APIs.
