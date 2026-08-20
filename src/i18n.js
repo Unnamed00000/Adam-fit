@@ -429,8 +429,9 @@ const da = {
 const dictionaries = { ru, en, da };
 
 export function tr(language, key, values = {}) {
-  const dict = dictionaries[language] || ru;
+  const dict = dictionaries[language] || en;
   let value = key.split(".").reduce((current, part) => current?.[part], dict)
+    ?? key.split(".").reduce((current, part) => current?.[part], en)
     ?? key.split(".").reduce((current, part) => current?.[part], ru)
     ?? key;
   if (Array.isArray(value)) value = value[0];
@@ -439,6 +440,6 @@ export function tr(language, key, values = {}) {
 }
 
 export function exerciseText(language, key, index) {
-  const dict = dictionaries[language] || ru;
-  return dict.exercise?.[key]?.[index] || ru.exercise[key][index];
+  const dict = dictionaries[language] || en;
+  return dict.exercise?.[key]?.[index] || en.exercise?.[key]?.[index] || ru.exercise[key][index];
 }

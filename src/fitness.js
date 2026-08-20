@@ -15,7 +15,7 @@ export const defaultProfile = {
   place: "gym",
   duration: 45,
   equipment: ["dumbbells", "barbell", "machines"],
-  language: "ru",
+  language: "en",
   theme: "light"
 };
 

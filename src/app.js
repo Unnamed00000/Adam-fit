@@ -1,11 +1,11 @@
-import { exerciseText, tr } from "./i18n.js?v=1.0.4";
-import { dateKey, daySummary, defaultProfile, normalizeProfile, todayWorkout, weekPlan } from "./fitness.js?v=1.0.4";
-import { store } from "./storage.js?v=1.0.4";
-import { initFirebase } from "./firebase.js?v=1.0.4";
+import { exerciseText, tr } from "./i18n.js?v=1.0.5";
+import { dateKey, daySummary, defaultProfile, normalizeProfile, todayWorkout, weekPlan } from "./fitness.js?v=1.0.5";
+import { store } from "./storage.js?v=1.0.5";
+import { firebaseConfig, initFirebase } from "./firebase.js?v=1.0.5";
 
 const root = document.querySelector("#app");
 const ADMIN_UIDS = new Set(["paEGMjUNBac2suEeYF96dFIAIAY2"]);
-const LANGUAGE_KEY = "adam-fit-5ec39:language";
+const LANGUAGE_KEY = "adam-fit-5ec39:language:v2";
 const supportedLanguages = ["ru", "en", "da"];
 const languageNames = { ru: "Русский", en: "English", da: "Dansk" };
 
@@ -125,7 +125,7 @@ function callable(name) {
   return state.firebase.functions.httpsCallable(name);
 }
 
-async function loadAdminUsers() {
+async function loadAdminUsers(options = {}) {
   if (!isAdmin() || !state.firebase.ready || !state.firebase.functions) return;
   try {
     state.adminLoading = true;
@@ -133,22 +133,91 @@ async function loadAdminUsers() {
     state.adminUsers = Array.isArray(result.data?.users) ? result.data.users : [];
     state.adminMessage = "";
   } catch (error) {
-    state.adminMessage = errorMessage(error);
+    await loadAdminUsersFromFirestore();
+    if (!options.preserveMessage) state.adminMessage = errorMessage(error);
   } finally {
     state.adminLoading = false;
   }
 }
 
+async function loadAdminUsersFromFirestore() {
+  if (!isAdmin() || !state.firebase.ready) return;
+  const snap = await state.firebase.firestore.collection("users").get();
+  state.adminUsers = snap.docs.map((doc) => {
+    const profile = doc.data() || {};
+    return {
+      uid: doc.id,
+      email: profile.email || "",
+      displayName: profile.name || "",
+      disabled: false,
+      role: profile.role || "user",
+      profileComplete: Boolean(profile.profileComplete),
+      createdAt: profile.createdAt || "",
+      lastSignInAt: ""
+    };
+  });
+}
+
 async function adminCreateUser(data) {
-  const createUser = callable("adminCreateUser");
-  await createUser({
+  const payload = {
     email: data.email,
     password: data.password,
     name: data.name,
     role: data.role === "admin" ? "admin" : "user"
-  });
+  };
+
+  try {
+    const createUser = callable("adminCreateUser");
+    await createUser(payload);
+  } catch (error) {
+    if (!canCreateUserWithoutFunctions(error)) throw error;
+    await adminCreateUserWithClientAuth(payload);
+  }
+
   state.adminMessage = t("adminUserCreated");
-  await loadAdminUsers();
+  await loadAdminUsers({ preserveMessage: true });
+}
+
+function canCreateUserWithoutFunctions(error) {
+  const code = String(error?.code || error?.message || "");
+  return code === "adminFunctionsUnavailable"
+    || code.includes("functions/not-found")
+    || code.includes("not-found")
+    || code.includes("NOT_FOUND")
+    || code.includes("internal");
+}
+
+async function adminCreateUserWithClientAuth(data) {
+  if (!state.firebase.ready || !window.firebase?.initializeApp) {
+    throw new Error("adminFunctionsUnavailable");
+  }
+
+  const email = String(data.email || "").trim().toLowerCase();
+  const name = String(data.name || "").trim();
+  const role = data.role === "admin" ? "admin" : "user";
+  const appName = `adam-fit-admin-create-${Date.now()}`;
+  const app = window.firebase.initializeApp(firebaseConfig, appName);
+  const auth = window.firebase.auth(app);
+
+  try {
+    await auth.setPersistence(window.firebase.auth.Auth.Persistence.NONE);
+    const credential = await auth.createUserWithEmailAndPassword(email, data.password);
+    if (name) await credential.user.updateProfile({ displayName: name });
+    await state.firebase.firestore.collection("users").doc(credential.user.uid).set({
+      authUid: credential.user.uid,
+      email,
+      name,
+      role,
+      language: defaultProfile.language,
+      profileComplete: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }, { merge: true });
+    await auth.signOut();
+    return credential.user.uid;
+  } finally {
+    await app.delete().catch(() => {});
+  }
 }
 
 async function adminSetPassword(data) {

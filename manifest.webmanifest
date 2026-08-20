@@ -1,7 +1,7 @@
 {
   "name": "Adam Fit",
   "short_name": "Adam Fit",
-  "description": "Adam Fit — персональный фитнес-помощник для тренировок, питания и контроля прогресса.",
+  "description": "Adam Fit — personal fitness assistant for training, nutrition, and progress tracking.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

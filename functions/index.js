@@ -103,6 +103,7 @@ exports.adminCreateUser = onCall(async (request) => {
     email,
     name,
     role,
+    language: "en",
     profileComplete: false,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
