@@ -1,13 +1,13 @@
-const CACHE_NAME = "adam-fit-v106";
+const CACHE_NAME = "adam-fit-v107";
 const APP_FILES = [
   "./",
   "./index.html",
-  "./styles.css?v=1.0.0",
-  "./src/app.js?v=1.0.6",
-  "./src/i18n.js?v=1.0.6",
-  "./src/fitness.js?v=1.0.6",
-  "./src/storage.js?v=1.0.6",
-  "./src/firebase.js?v=1.0.6",
+  "./styles.css?v=1.0.7",
+  "./src/app.js?v=1.0.7",
+  "./src/i18n.js?v=1.0.7",
+  "./src/fitness.js?v=1.0.7",
+  "./src/storage.js?v=1.0.7",
+  "./src/firebase.js?v=1.0.7",
   "./manifest.webmanifest",
   "./icon.svg",
   "./icon-192.png",

@@ -1,7 +1,7 @@
-import { exerciseText, tr } from "./i18n.js?v=1.0.6";
-import { dateKey, daySummary, defaultProfile, normalizeProfile, todayWorkout, weekPlan } from "./fitness.js?v=1.0.6";
-import { store } from "./storage.js?v=1.0.6";
-import { firebaseConfig, initFirebase } from "./firebase.js?v=1.0.6";
+import { exerciseText, tr } from "./i18n.js?v=1.0.7";
+import { dateKey, daySummary, defaultProfile, normalizeProfile, todayWorkout, weekPlan } from "./fitness.js?v=1.0.7";
+import { store } from "./storage.js?v=1.0.7";
+import { firebaseConfig, initFirebase } from "./firebase.js?v=1.0.7";
 
 const root = document.querySelector("#app");
 const ADMIN_UIDS = new Set(["paEGMjUNBac2suEeYF96dFIAIAY2"]);
@@ -50,6 +50,7 @@ const lists = {
 };
 
 const html = (value) => String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+const clamp = (min, value, max) => Math.max(min, Math.min(max, value));
 const t = (key, values) => tr(activeLanguage(), key, values);
 const ex = (key, index) => exerciseText(activeLanguage(), key, index);
 
@@ -528,7 +529,53 @@ function viewProgress() {
   const change = Number.isFinite(first) && Number.isFinite(last) ? (last - first).toFixed(1) : "0";
   return `<header class="plain"><h1>${t("progress")}</h1><p>${t("smartHint")}</p></header>
     <section class="card chart"><div><span>${t("weightChart")}</span><strong>${t("change")}: ${change} kg</strong></div>${chart(weights)}<form data-form="weight"><input name="weight" type="number" step="0.1" value="${state.profile.currentWeight}"><button>${t("addWeight")}</button></form></section>
+    ${bodyPreview(weights)}
     <section class="list">${weights.slice(-8).reverse().map((item) => `<article class="row"><strong>${item.date}</strong><span>${item.weight} kg</span></article>`).join("") || `<p>${t("noItems")}</p>`}</section>`;
+}
+
+function bodyPreview(weights) {
+  const currentWeight = Number(weights.at(-1)?.weight || state.profile.currentWeight);
+  const targetWeight = Number(state.profile.targetWeight || currentWeight);
+  const height = Number(state.profile.height || defaultProfile.height);
+  const delta = (targetWeight - currentWeight).toFixed(1);
+  return `<section class="card body-card">
+    <div class="body-head">
+      <div><span>${t("bodyPreview")}</span><strong>${height} ${t("cmUnit")} · ${t("change")}: ${delta} ${t("kgUnit")}</strong></div>
+      <small>${t("bodyPreviewHint")}</small>
+    </div>
+    <div class="body-stage">
+      ${bodyFigure(t("currentShape"), currentWeight, height, "current")}
+      <div class="body-arrow">→</div>
+      ${bodyFigure(t("goalShape"), targetWeight, height, "goal")}
+    </div>
+  </section>`;
+}
+
+function bodyFigure(label, weight, height, mode) {
+  const bmi = height ? weight / ((height / 100) ** 2) : 0;
+  const body = clamp(0.72, 0.78 + ((bmi - 21) * 0.026), 1.38);
+  const shoulders = clamp(0.78, body + (state.profile.gender === "male" ? 0.08 : -0.02), 1.4);
+  const hips = clamp(0.76, body + (state.profile.gender === "female" ? 0.08 : 0), 1.42);
+  const heightScale = clamp(0.9, height / 178, 1.12);
+  const typeKey = bmi < 18.5 ? "bodyLean" : bmi < 25 ? "bodyFit" : bmi < 30 ? "bodySolid" : "bodyStrong";
+  return `<article class="body-figure ${mode}" style="--body:${body.toFixed(2)};--shoulders:${shoulders.toFixed(2)};--hips:${hips.toFixed(2)};--person-height:${heightScale.toFixed(2)}">
+    <div class="person" aria-hidden="true">
+      <i class="head"></i>
+      <i class="neck"></i>
+      <i class="torso"></i>
+      <i class="arm left"></i>
+      <i class="arm right"></i>
+      <i class="hips"></i>
+      <i class="leg left"></i>
+      <i class="leg right"></i>
+      <i class="pulse"></i>
+    </div>
+    <div class="body-meta">
+      <strong>${label}</strong>
+      <span>${Math.round(weight * 10) / 10} ${t("kgUnit")} · BMI ${bmi.toFixed(1)}</span>
+      <small>${t(typeKey)}</small>
+    </div>
+  </article>`;
 }
 
 function viewProfile() {
