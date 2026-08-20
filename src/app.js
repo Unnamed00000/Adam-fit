@@ -1,7 +1,7 @@
-import { exerciseText, tr } from "./i18n.js?v=1.0.5";
-import { dateKey, daySummary, defaultProfile, normalizeProfile, todayWorkout, weekPlan } from "./fitness.js?v=1.0.5";
-import { store } from "./storage.js?v=1.0.5";
-import { firebaseConfig, initFirebase } from "./firebase.js?v=1.0.5";
+import { exerciseText, tr } from "./i18n.js?v=1.0.6";
+import { dateKey, daySummary, defaultProfile, normalizeProfile, todayWorkout, weekPlan } from "./fitness.js?v=1.0.6";
+import { store } from "./storage.js?v=1.0.6";
+import { firebaseConfig, initFirebase } from "./firebase.js?v=1.0.6";
 
 const root = document.querySelector("#app");
 const ADMIN_UIDS = new Set(["paEGMjUNBac2suEeYF96dFIAIAY2"]);
@@ -198,21 +198,24 @@ async function adminCreateUserWithClientAuth(data) {
   const appName = `adam-fit-admin-create-${Date.now()}`;
   const app = window.firebase.initializeApp(firebaseConfig, appName);
   const auth = window.firebase.auth(app);
+  let credential = null;
 
   try {
     await auth.setPersistence(window.firebase.auth.Auth.Persistence.NONE);
-    const credential = await auth.createUserWithEmailAndPassword(email, data.password);
+    try {
+      credential = await auth.createUserWithEmailAndPassword(email, data.password);
+    } catch (error) {
+      if (!String(error?.code || error?.message || "").includes("email-already-in-use")) throw error;
+      credential = await auth.signInWithEmailAndPassword(email, data.password);
+    }
+
     if (name) await credential.user.updateProfile({ displayName: name });
-    await state.firebase.firestore.collection("users").doc(credential.user.uid).set({
-      authUid: credential.user.uid,
+    await upsertUserProfileDocument(credential.user.uid, {
       email,
       name,
       role,
-      language: defaultProfile.language,
-      profileComplete: false,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    }, { merge: true });
+      profileComplete: false
+    });
     await auth.signOut();
     return credential.user.uid;
   } finally {
@@ -238,6 +241,7 @@ async function ensureUserDocument(uid) {
   const ref = state.firebase.firestore.collection("users").doc(uid);
   const snap = await ref.get();
   const role = roleFor(uid, snap.exists ? snap.data() : {});
+  const isBootstrap = ADMIN_UIDS.has(uid);
   const base = {
     authUid: uid,
     email: state.user?.email || "",
@@ -246,7 +250,7 @@ async function ensureUserDocument(uid) {
   };
 
   if (!snap.exists) {
-    await ref.set({
+    await ref.set(isBootstrap ? adminBootstrapProfile(base) : {
       ...base,
       profileComplete: false,
       createdAt: new Date().toISOString()
@@ -254,9 +258,32 @@ async function ensureUserDocument(uid) {
     return;
   }
 
-  if (snap.data().role !== role || !snap.data().authUid) {
-    await ref.set(base, { merge: true });
+  if (snap.data().role !== role || !snap.data().authUid || (isBootstrap && !snap.data().profileComplete)) {
+    await ref.set(isBootstrap ? adminBootstrapProfile({ ...snap.data(), ...base }) : base, { merge: true });
   }
+}
+
+function adminBootstrapProfile(base) {
+  return normalizeProfile({
+    ...defaultProfile,
+    ...base,
+    name: base.name || state.user?.email?.split("@")[0] || "Admin",
+    role: "admin",
+    language: defaultProfile.language,
+    profileComplete: true,
+    createdAt: base.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  });
+}
+
+async function upsertUserProfileDocument(uid, profile) {
+  await state.firebase.firestore.collection("users").doc(uid).set({
+    authUid: uid,
+    language: defaultProfile.language,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    ...profile
+  }, { merge: true });
 }
 
 async function getProfile(uid) {
