@@ -1,9 +1,11 @@
-import { exerciseText, tr } from "./i18n.js?v=1.0.1";
-import { dateKey, daySummary, defaultProfile, normalizeProfile, todayWorkout, weekPlan } from "./fitness.js?v=1.0.1";
-import { store } from "./storage.js?v=1.0.1";
-import { initFirebase } from "./firebase.js?v=1.0.1";
+import { exerciseText, tr } from "./i18n.js?v=1.0.2";
+import { dateKey, daySummary, defaultProfile, normalizeProfile, todayWorkout, weekPlan } from "./fitness.js?v=1.0.2";
+import { store } from "./storage.js?v=1.0.2";
+import { initFirebase } from "./firebase.js?v=1.0.2";
 
 const root = document.querySelector("#app");
+const ADMIN_UIDS = new Set(["paEGMjUNBac2suEeYF96dFIAIAY2"]);
+
 const state = {
   booting: true,
   authMode: "login",
@@ -33,6 +35,10 @@ const lists = {
 const html = (value) => String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 const t = (key, values) => tr(state.profile?.language || defaultProfile.language, key, values);
 const ex = (key, index) => exerciseText(state.profile?.language || defaultProfile.language, key, index);
+
+function roleFor(uid, profile = {}) {
+  return ADMIN_UIDS.has(uid) ? "admin" : profile.role || "user";
+}
 
 function errorMessage(error) {
   const code = error?.code || error?.message || "";
@@ -65,6 +71,7 @@ function waitForAuthUser() {
 
 async function refresh() {
   if (!state.user) return;
+  await ensureUserDocument(state.user.id);
   state.profile = await getProfile(state.user.id);
   if (state.profile) {
     state.day = await getDay(state.user.id, state.dayKey);
@@ -72,21 +79,55 @@ async function refresh() {
   }
 }
 
+async function ensureUserDocument(uid) {
+  if (!state.firebase.ready) return;
+  const ref = state.firebase.firestore.collection("users").doc(uid);
+  const snap = await ref.get();
+  const role = roleFor(uid, snap.exists ? snap.data() : {});
+  const base = {
+    authUid: uid,
+    email: state.user?.email || "",
+    role,
+    updatedAt: new Date().toISOString()
+  };
+
+  if (!snap.exists) {
+    await ref.set({
+      ...base,
+      profileComplete: false,
+      createdAt: new Date().toISOString()
+    }, { merge: true });
+    return;
+  }
+
+  if (snap.data().role !== role || !snap.data().authUid) {
+    await ref.set(base, { merge: true });
+  }
+}
+
 async function getProfile(uid) {
   if (!state.firebase.ready) return store.profile(uid);
   const snap = await state.firebase.firestore.collection("users").doc(uid).get();
   if (!snap.exists) return store.profile(uid);
+  if (!snap.data().profileComplete) return null;
   const profile = normalizeProfile({ ...defaultProfile, ...snap.data() });
   store.saveProfile(uid, profile);
   return profile;
 }
 
 async function saveProfile(uid, profile) {
-  const saved = normalizeProfile({ ...defaultProfile, ...profile });
+  const saved = normalizeProfile({
+    ...defaultProfile,
+    ...state.profile,
+    ...profile,
+    role: roleFor(uid, profile),
+    profileComplete: true
+  });
   store.saveProfile(uid, saved);
   if (state.firebase.ready) {
     await state.firebase.firestore.collection("users").doc(uid).set({
       ...saved,
+      authUid: uid,
       email: state.user?.email || "",
       updatedAt: new Date().toISOString()
     }, { merge: true });
@@ -306,7 +347,7 @@ function viewProgress() {
 
 function viewProfile() {
   return `<header class="plain"><h1>${t("profile")}</h1><p>${t("smartHint")}</p></header>
-    <section class="targets">${["calories", "protein", "water", "steps"].map((key) => `<article><span>${t(key)}</span><strong>${state.profile[key === "calories" ? "calorieTarget" : `${key}Target`]}${key === "calories" ? " kcal" : ""}</strong></article>`).join("")}<article><span>${t("dataMode")}</span><strong>${state.firebase.ready ? t("firebase") : t("local")}</strong></article></section>
+    <section class="targets">${["calories", "protein", "water", "steps"].map((key) => `<article><span>${t(key)}</span><strong>${state.profile[key === "calories" ? "calorieTarget" : `${key}Target`]}${key === "calories" ? " kcal" : ""}</strong></article>`).join("")}<article><span>${t("role")}</span><strong>${t(state.profile.role || "user")}</strong></article><article><span>${t("dataMode")}</span><strong>${state.firebase.ready ? t("firebase") : t("local")}</strong></article></section>
     ${profileForm(state.profile, t("save"))}
     <section class="settings"><label>${t("language")}<select data-action="language">${["ru", "en", "da"].map((lang) => `<option value="${lang}" ${state.profile.language === lang ? "selected" : ""}>${lang.toUpperCase()}</option>`).join("")}</select></label><label>${t("theme")}<select data-action="theme"><option value="light" ${state.profile.theme === "light" ? "selected" : ""}>${t("light")}</option><option value="dark" ${state.profile.theme === "dark" ? "selected" : ""}>${t("dark")}</option></select></label><button class="danger" data-action="sign-out">${t("signOut")}</button></section>`;
 }
@@ -363,7 +404,7 @@ async function submit(event) {
         state.user = store.register(data.email, data.password);
       }
     }
-    if (form.dataset.form === "profile") state.profile = await saveProfile(state.user.id, data);
+    if (form.dataset.form === "profile") state.profile = await saveProfile(state.user.id, { ...state.profile, ...data });
     if (form.dataset.form === "food") state.day = await addFood(data);
     if (form.dataset.form === "steps") state.day = await setSteps(data.steps);
     if (form.dataset.form === "weight") {
